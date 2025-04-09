@@ -1,1 +1,15 @@
-Expected file upload for LPV system: 11.04.2025
+**Expected file upload for LPV system: 11.04.2025**
+
+Main contributor: Sebastian Zieglmeier (University of Oslo, Norway, Department of Technology systems)
+Mail: sebastiz@uio.no
+Further contributor: Mathias Hudoba de Badyn (University of Oslo, Norway, Department of Technology systems)
+Mail: mathihud@uio.no
+
+Main relevant work: 
+[1] - Sebastian Zieglmeier, et.al., "Semi-Data-Driven Model Pparamictive
+      Control: A Physics-Informed Data-Driven Control Approach", 
+      https://doi.org/10.48550/arXiv.2504.00746
+
+Used packages to solve the optimization problem in matlab: yalmip and mosek
+
+In case of questions or collaboration interest, feel free to reach out to the mail above. 
