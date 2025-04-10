@@ -1,7 +1,7 @@
-%% File Name: simulate_SDMPC_LTI.m
+%% File Name: simulate_SDMPC_LPV.m
 % Author: Sebastian Zieglmeier 
 % Date last updated: 03.04.2025
-% Description: Simulation of a LTI system controlled by SD-MPC (or MPC, 
+% Description: Simulation of a LPV system controlled by SD-MPC (or MPC, 
 % DeePC) for a given reference trajectory
 % Sources: 
 % [1] - Sebastian Zieglmeier, et.al., "Semi-Data-Driven Model Pparamictive
@@ -19,39 +19,41 @@ clear all;
 
 
 %% Get system
-sys_name = "LTI_2_Tank";
+sys_name = "LPV_2_Tank";
 sys = eval(sys_name);
 
 %% Get scenario
-scenario = 2;   % 1 - general scenario, 2 - robust scenario
-
+scenario1 = 1;  % general senario1: simulation inside data collection range 
+% scenario1 = 2;  % robust senario1: simulation outside data collection range
+scenario2 = 1;  % general senario2: system data-collection == system simulation
+% scenario2 = 2;  % robust senario2: system data-collection ~= system simulation
 %% Get controller
-control_name = "MPC";   % SD_MPC, rSD_MPC, DeePC, MPC
+control_name = "rSD_MPC  ";   % SD_MPC, rSD_MPC, DeePC, MPC
 
 %% Initialize Variables and control hyperparameters
-T_sim = 100;       % Simulation time
+T_sim = 300;       % Simulation time
 T_fut = 5;         % Prediction horizon
 T_d = 200;         % T_d is the number of data points used to build the Hankel matrix
-T_ini = 5;         % Number of past values of DeePC
+T_ini = 15;        % Number of past values of DeePC
 
 % Cost function parameters of the hybrid predictive controller
 lambda_ini = 1e7;
-lambda_g = 1;
-r = 1e-3;
+lambda_g = 1e4;
+r = 1e-2;
 q = 1e4;
 
 
 %% Load system:
-% LTI state space model of the real system for the data collection
-A = sys.model.A;
-B = sys.model.B;
-C = sys.model.C;
-D = sys.model.D;
+% continous LTI state space model of the real system for the data collection
+A_theta = sys.model.A;
+B_c = sys.model.B;
+C_c = sys.model.C;
+D_c = sys.model.D;
 
 % LTI state space model of the assumed system (parametric model)
 if control_name == "DeePC"
     % By nilling the parametric model the SD-MPC function can be used as
-    % DeePC [1]
+    % DeePC, Proposition 4 in [1]
     A_M = zeros(size(sys.param_model.A_M));
     B_M = zeros(size(sys.param_model.B_M));
     C_M = zeros(size(sys.param_model.C_M));
@@ -63,17 +65,17 @@ else
     D_M = sys.param_model.D_M;
 end
 
-% LTI state space model for simulating the general or robust scenario
-if scenario == 1                        % general scenario
-    A_sim = sys.sim_model_1.A_sim;
-    B_sim = sys.sim_model_1.B_sim;
-    C_sim = sys.sim_model_1.C_sim;
-    D_sim = sys.sim_model_1.D_sim;
-else                                    %robust scenario
-    A_sim = sys.sim_model_2.A_sim;
-    B_sim = sys.sim_model_2.B_sim;
-    C_sim = sys.sim_model_2.C_sim;
-    D_sim = sys.sim_model_2.D_sim;
+% continous LPV state space model for simulating the general or robust scenario2
+if scenario2 == 1                        % general scenario2
+    A_sim_theta_c = sys.sim_model_1.A_sim;
+    B_sim_c = sys.sim_model_1.B_sim;
+    C_sim_c = sys.sim_model_1.C_sim;
+    D_sim_c = sys.sim_model_1.D_sim;
+else                                    % enhanced robust scenario2
+    A_sim_theta_c = sys.sim_model_2.A_sim;
+    B_sim_c = sys.sim_model_2.B_sim;
+    C_sim_c = sys.sim_model_2.C_sim;
+    D_sim_c = sys.sim_model_2.D_sim;
 end
 
 % System constants
@@ -98,15 +100,30 @@ y_data_M = y_data;
 
 x_data_sys = zeros(T_d+1, nx);   
 x_data_M = zeros(T_d+1, nx_M);
+x_data_sys(1,:) = [10;10];  % initial condition of data collection
+x_data_M(1,:) = [10;10];
+
+scaling_factor = 1; % scaling factor to keep data collection in a certain range
 
 rand('seed', 8); % seeding for reproducibility
 for i = 1:T_d
-    u_data_sys(i) = rand(1)*.1*i;               % only positive values 
+    u_data_sys(i) = rand(1)*scaling_factor*i;  
+    % Ensuring u being inside input constraints and sufficiently random to be
+    % persistently exciting
+    if u_data_sys(i) >= constraints.u_max
+        u_data_sys(i) = mod(u_data_sys(i), constraints.u_max);
+        if u_data_sys(i) < constraints.u_max/2
+            u_data_sys(i) = u_data_sys(i) + constraints.u_max/2;
+        end
+    end
+    % Doublecheck:
     [u_data_sys(i, :), w, warn] = system_boundaries(u_data_sys(i, :), sys.constraints, "u");
     if w == 1
         disp(warn);
     end
-
+    
+    [A, B, C, D] = discretize_LPV(A_theta, B_c, C_c, D_c, x_data_sys(i, :), sys.T_samp);
+    
     x_data_sys(i+1, :) = (A * x_data_sys(i, :)' + B * u_data_sys(i))';
     y_data_sys(i,:) = C * x_data_sys(i, :)' + D * u_data_sys(i);
     
@@ -123,6 +140,13 @@ for i = 1:T_d
     [y_data_sys(i, :), w, warn] = system_boundaries(y_data_sys(i, :), sys.constraints, "y");
     if w == 1
         disp(warn);
+    end
+
+    % Collecting data in a certain (approx.) range via scaling_factor
+    if y_data_sys(i,:) < 10
+        scaling_factor = 1;
+    elseif y_data_sys(i,:) > 20 
+        scaling_factor = .1;
     end
 end
 
@@ -149,7 +173,6 @@ end
 
 
 %% Intialize Controller and Simulation Variables
-
 if control_name == "SD_MPC" || control_name == "rSD_MPC"
     control = SD_MPC(T_d, T_ini, T_fut, r, q, lambda_ini, lambda_g, H_u, H_y, sys);
 elseif control_name == "MPC"
@@ -184,9 +207,12 @@ x_0 = zeros(nx_M, 1);
 
 %% Reference Trajectory
 
-ref_name = "Smooth_Step_to_Sinus_paper_LTI";
+ref_name = "Smooth_Step_to_Sinus_paper_LPV";
+if scenario1 == 2
+    ref_name = "Smooth_Step_to_Sinus_paper_LPV_robust";
+end
 ref = get_ref(ref_name, T_sim, ny, T_fut, T_ini);
-% Options: Smooth_Step_to_Sinus_paper (from [1]), Smooth_Step_to_Sinus, 
+% Options: Smooth_Step_to_Sinus_paper_LPV (from [1]), Smooth_Step_to_Sinus, 
 % Smooth_Step, Sinus, Step
 % reference trajectory values can be changed in get_ref.m
 
@@ -205,10 +231,12 @@ for i = 1:T_sim
     if w == 1
         disp(warn);
     end
+    
+    [A, B, C, D] = discretize_LPV(A_sim_theta_c, B_sim_c, C_sim_c, D_sim_c, x_sim(i, :), sys.T_samp);
 
     % Simulate real system:
-    x_sim(i+1, :) = (A_sim * x_sim(i, :)' + B_sim * u_sim(i))';
-    y_sim(i) = C_sim * x_sim(i, :)' + D_sim * u_sim(i);
+    x_sim(i+1, :) = (A * x_sim(i, :)' + B * u_sim(i))';
+    y_sim(i) = C * x_sim(i, :)' + D * u_sim(i);
     
     % Ensure system boundaries:
     [x_sim(i+1, :), w, warn] = system_boundaries(x_sim(i+1, :), sys.constraints, "x");

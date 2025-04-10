@@ -31,8 +31,12 @@ function ref = get_ref(ref_name, T_sim, ny, T_fut, T_ini)
     y_0 = 0; 
     y_step = 10; 
     y_sin = 5;
-    if ref_name == "Smooth_Step_to_Sinus_paper"
-        ref = Smooth_Step_to_Sinus_paper(T_sim, ny, T_fut, 19, 6, 21, 40, 0, 10, 5);
+    if ref_name == "Smooth_Step_to_Sinus_paper_LTI"
+        ref = Smooth_Step_to_Sinus_paper_LTI(T_sim, ny, T_fut, 19, 6, 21, 40, 0, 10, 5);
+    elseif ref_name == "Smooth_Step_to_Sinus_paper_LPV"
+        ref = Smooth_Step_to_Sinus_paper_LPV(T_sim, ny, T_fut, 19, 27, 81, 130, 0, 15, 5);
+    elseif ref_name == "Smooth_Step_to_Sinus_paper_LPV_robust"
+        ref = Smooth_Step_to_Sinus_paper_LPV(T_sim, ny, T_fut, 19, 27, 81, 130, 0, 25, 5);
     else
         ref = eval([ref_name + "(T_sim, ny, T_fut, ini_len, smooth_len, step_len, sin_period_len, y_0, y_step, y_sin)"]);
     end
